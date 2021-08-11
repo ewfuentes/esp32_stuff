@@ -136,10 +136,6 @@ extern "C" void app_main(void) {
   configure_led();
   configure_i2c();
   const app::font::Font &font = app::font::subway_ticker::get_font();
-  for (const auto &code_and_glpyh : font.glyph_from_codepoint) {
-    ESP_LOGI(TAG, "%d %s", code_and_glpyh.first, code_and_glpyh.second.name.c_str());
-  } 
-  //  (void)font;
 
   {
     const esp_err_t status = set_charge_pump(true);

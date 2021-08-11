@@ -33,7 +33,6 @@ const Font &get_font();
 """
 
 SOURCE_TEMPLATE = """
-
 #include "subway_ticker/font.hh"
 
 namespace app::font::subway_ticker {
@@ -41,14 +40,16 @@ namespace {
 const Font font = {
   .name = "subway_ticker",
   .glyph_from_codepoint = {
-  {% for codepoint, name in font.getBestCmap().items() %}
+  {% for codepoint, name in name_by_codepoint.items() %}
       {{- codepoint -}, Glyph{.name = "{- name -}", .data = {{- format_data(data_from_glyph[name]) -}}}},
   {% endfor %}
   }
 };
 }
 
-const Font &get_font() { return font; }
+const Font &get_font() {
+  return font;
+}
 }
 """
 
@@ -134,8 +135,11 @@ def get_data_from_glyphs(font: fontTools.ttLib.TTFont, blocks_from_glyph: Dict[s
 
 
 def get_cpp_from_data(font: fontTools.ttLib.TTFont, data_from_glyph: Dict[str, List[int]]):
-    t = jinja2.Template(SOURCE_TEMPLATE, variable_start_string='{-', variable_end_string='-}', trim_blocks=True, lstrip_blocks=True)
-    cpp = (t.render(font=font, data_from_glyph=data_from_glyph, format_data=format_data))
+    t = jinja2.Template(SOURCE_TEMPLATE, variable_start_string='{-', variable_end_string='-}',
+                        trim_blocks=True, lstrip_blocks=True)
+    name_by_codepoint = {codepoint: name for codepoint, name in font.getBestCmap().items() if codepoint < 128}
+
+    cpp = (t.render(name_by_codepoint=name_by_codepoint, data_from_glyph=data_from_glyph, format_data=format_data))
     hh = HEADER_TEMPLATE
 
     return hh, cpp
