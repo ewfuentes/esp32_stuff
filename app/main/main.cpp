@@ -13,7 +13,9 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "subway_ticker/font.hh"
+#include <sstream>
 #include <stdio.h>
+#include <array>
 
 static const char *TAG = "example";
 constexpr gpio_num_t BLINK_GPIO = GPIO_NUM_13;
@@ -26,6 +28,8 @@ constexpr uint8_t DATA_BYTES = 0x00;
 constexpr uint8_t COMMAND_BYTES = 0x00;
 
 static bool s_led_state = 0;
+
+static std::array<std::string, 8> display_data;
 
 static void blink_led(void) {
   /* Set the GPIO level according to the state (LOW or HIGH)*/
@@ -71,33 +75,50 @@ esp_err_t set_contrast(uint8_t contrast) {
                                     CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
 }
 
+std::array<std::uint8_t, 128> data_from_string(const std::string &str) {
+  int idx = 0;
+  std::array<std::uint8_t, 128> out{0};
+  const app::font::Font &font = app::font::subway_ticker::get_font();
+  for (const char c : str) {
+    for (const std::uint8_t b : font.glyph_from_codepoint.at(c).data) {
+      if (idx >= 128) {
+        break;
+      }
+      out[idx] = b;
+      idx++;
+    }
+    idx += 2;
+  }
+  return out;
+}
+
+
 esp_err_t write_stripes() {
   constexpr uint8_t PAGE_ADDRESS_COMMAND = 0xB0;
   uint8_t page_address_buf[] = {COMMAND_BYTES, PAGE_ADDRESS_COMMAND};
 
   uint8_t buf[129] = {0};
   buf[0] = 0x40;
+  std::stringstream sstream;
   for (int i = 0; i < 8; i++) {
-    for (int j = 1; j < sizeof(buf); j++) {
-      if (i == 0) {
-        buf[j] = 0x1;
-      } else if (i == 7) {
-        buf[j] = 0x80;
-      } else {
-        buf[j] = 0x00;
-      }
-      if (j == 1 || j == 128) {
-        buf[j] = 0xFF;
-      }
+    sstream.str("");
+    if (s_led_state == i % 2) {
+      sstream << "Butt Butts BUTTS";
     }
+    const std::array<uint8_t, 128> data = data_from_string(sstream.str());
+    for (int j = 0; j < data.size(); j++) {
+      buf[j+1] = data[j];
+    }
+
+
     // Set page address
     page_address_buf[1] = (page_address_buf[1] & 0xF0) | i;
     i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, page_address_buf,
                                sizeof(page_address_buf),
-                               CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+                               100 / portTICK_PERIOD_MS);
 
     i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, buf, sizeof(buf),
-                               CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+                               100 / portTICK_PERIOD_MS);
   }
   return ESP_OK;
 }
@@ -135,22 +156,22 @@ extern "C" void app_main(void) {
   /* Configure the peripheral according to the LED type */
   configure_led();
   configure_i2c();
-  const app::font::Font &font = app::font::subway_ticker::get_font();
+  //  const app::font::Font &font = app::font::subway_ticker::get_font();
 
   {
     const esp_err_t status = set_charge_pump(true);
     ESP_LOGI(TAG, "charge pump on status: %d", status);
-    vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
   {
     const esp_err_t status = set_display(true);
     ESP_LOGI(TAG, "Display on status: %d", status);
-    vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
   {
     const esp_err_t status = set_contrast(255u);
     ESP_LOGI(TAG, "contrast status: %d", status);
-    vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 
   while (1) {
