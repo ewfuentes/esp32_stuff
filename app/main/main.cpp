@@ -6,16 +6,32 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+#include <array>
+#include <sstream>
+#include <stdio.h>
+
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "esp_event.h"
+#include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
+#include "nvs_flash.h"
+#include "protocol_examples_common.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "subway_ticker/font.hh"
-#include <sstream>
-#include <stdio.h>
-#include <array>
+
+static char HELLO_HTML[] =
+    "<html><head><title>Hello ESP32</title></head>"
+    "<body>Hello to you too!"
+    "<form method=\"post\"><label for=\"message\">message:</label><br>"
+    "<input type=\"text\" id=\"message\" name=\"message\"><br>"
+    "<input type=\"submit\" value=\"Let's see that puppy\">"
+    "</form></body>"
+    "</html>";
 
 static const char *TAG = "example";
 constexpr gpio_num_t BLINK_GPIO = GPIO_NUM_13;
@@ -29,6 +45,7 @@ constexpr uint8_t COMMAND_BYTES = 0x00;
 
 static bool s_led_state = 0;
 
+std::string display_message = "my cool display message!";
 static std::array<std::string, 8> display_data;
 
 static void blink_led(void) {
@@ -80,6 +97,10 @@ std::array<std::uint8_t, 128> data_from_string(const std::string &str) {
   std::array<std::uint8_t, 128> out{0};
   const app::font::Font &font = app::font::subway_ticker::get_font();
   for (const char c : str) {
+    if (font.glyph_from_codepoint.find(c) == font.glyph_from_codepoint.end()) {
+      ESP_LOGI(TAG, "Unable to find char in font: %d", c);
+      continue;
+    }
     for (const std::uint8_t b : font.glyph_from_codepoint.at(c).data) {
       if (idx >= 128) {
         break;
@@ -87,11 +108,10 @@ std::array<std::uint8_t, 128> data_from_string(const std::string &str) {
       out[idx] = b;
       idx++;
     }
-    idx += 2;
+    idx += 1;
   }
   return out;
 }
-
 
 esp_err_t write_stripes() {
   constexpr uint8_t PAGE_ADDRESS_COMMAND = 0xB0;
@@ -103,13 +123,12 @@ esp_err_t write_stripes() {
   for (int i = 0; i < 8; i++) {
     sstream.str("");
     if (s_led_state == i % 2) {
-      sstream << "Butt Butts BUTTS";
+      sstream << display_message;
     }
     const std::array<uint8_t, 128> data = data_from_string(sstream.str());
     for (int j = 0; j < data.size(); j++) {
-      buf[j+1] = data[j];
+      buf[j + 1] = data[j];
     }
-
 
     // Set page address
     page_address_buf[1] = (page_address_buf[1] & 0xF0) | i;
@@ -151,13 +170,74 @@ static void configure_i2c() {
   ESP_LOGI(TAG, "Done configuring I2C!");
 }
 
+static esp_err_t root_handler(httpd_req_t *req) {
+
+  ESP_LOGI(TAG, "Received root request. method: %d length: %d", req->method, req->content_len);
+  if (req->method == HTTP_POST && req->content_len > 0) {
+    char *content = (char *)calloc(req->content_len+1, sizeof(char));
+    const int received_bytes = httpd_req_recv(req, content, req->content_len);
+    ESP_LOGI(TAG, "Received POST request: \r\n%s", content);
+    char message_str[64] = {0};
+    ESP_ERROR_CHECK(httpd_query_key_value(content, "message", message_str,
+                                          sizeof(message_str)));
+    if (strlen(message_str)) {
+      display_message = message_str;
+    }
+    free(content);
+  }
+  httpd_resp_set_status(req, HTTPD_200);
+  httpd_resp_sendstr(req, HELLO_HTML);
+  return ESP_OK;
+}
+
+static const httpd_uri_t root_get = {
+    .uri = "/", .method = HTTP_GET, .handler = root_handler, .user_ctx = NULL};
+
+static const httpd_uri_t root_post = {
+    .uri = "/", .method = HTTP_POST, .handler = root_handler, .user_ctx = NULL};
+
+static httpd_handle_t start_webserver(void) {
+  httpd_handle_t server = NULL;
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.lru_purge_enable = true;
+
+  // Start the httpd server
+  ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
+  if (httpd_start(&server, &config) == ESP_OK) {
+    // Set URI handlers
+    ESP_LOGI(TAG, "Registering URI handlers");
+    httpd_register_uri_handler(server, &root_get);
+    httpd_register_uri_handler(server, &root_post);
+    //    httpd_register_uri_handler(server, &echo);
+    //    httpd_register_uri_handler(server, &ctrl);
+    //#if CONFIG_EXAMPLE_BASIC_AUTH
+    //    httpd_register_basic_auth(server);
+    //#endif
+    return server;
+  }
+
+  ESP_LOGI(TAG, "Error starting server!");
+  return NULL;
+}
+
 extern "C" void app_main(void) {
 
+  static httpd_handle_t server = NULL;
   /* Configure the peripheral according to the LED type */
   configure_led();
   configure_i2c();
-  //  const app::font::Font &font = app::font::subway_ticker::get_font();
 
+  ESP_ERROR_CHECK(nvs_flash_init());
+  ESP_ERROR_CHECK(esp_netif_init());
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+  ESP_ERROR_CHECK(example_connect());
+
+  {
+    const esp_err_t status = set_display(false);
+    ESP_LOGI(TAG, "Display off status: %d", status);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
   {
     const esp_err_t status = set_charge_pump(true);
     ESP_LOGI(TAG, "charge pump on status: %d", status);
@@ -171,11 +251,11 @@ extern "C" void app_main(void) {
   {
     const esp_err_t status = set_contrast(255u);
     ESP_LOGI(TAG, "contrast status: %d", status);
-    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 
+  server = start_webserver();
+
   while (1) {
-    ESP_LOGI(TAG, "Turning the LED %s!", s_led_state ? "ON" : "OFF");
     blink_led();
     write_stripes();
     /* Toggle the LED state */
