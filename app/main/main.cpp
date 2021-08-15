@@ -113,7 +113,7 @@ std::array<std::uint8_t, 128> data_from_string(const std::string &str) {
   return out;
 }
 
-esp_err_t write_stripes() {
+esp_err_t write_stripes(const std::string &ip_address) {
   constexpr uint8_t PAGE_ADDRESS_COMMAND = 0xB0;
   uint8_t page_address_buf[] = {COMMAND_BYTES, PAGE_ADDRESS_COMMAND};
 
@@ -124,6 +124,10 @@ esp_err_t write_stripes() {
     sstream.str("");
     if (s_led_state == i % 2) {
       sstream << display_message;
+    }
+    if (i == 0) {
+      sstream.str("");
+      sstream << "IP: " << ip_address;
     }
     const std::array<uint8_t, 128> data = data_from_string(sstream.str());
     for (int j = 0; j < data.size(); j++) {
@@ -175,7 +179,7 @@ static esp_err_t root_handler(httpd_req_t *req) {
   ESP_LOGI(TAG, "Received root request. method: %d length: %d", req->method, req->content_len);
   if (req->method == HTTP_POST && req->content_len > 0) {
     char *content = (char *)calloc(req->content_len+1, sizeof(char));
-    const int received_bytes = httpd_req_recv(req, content, req->content_len);
+    httpd_req_recv(req, content, req->content_len);
     ESP_LOGI(TAG, "Received POST request: \r\n%s", content);
     char message_str[64] = {0};
     ESP_ERROR_CHECK(httpd_query_key_value(content, "message", message_str,
@@ -220,6 +224,28 @@ static httpd_handle_t start_webserver(void) {
   return NULL;
 }
 
+std::string get_ip_address() {
+  const int num_ifs = esp_netif_get_nr_of_ifs();
+  esp_netif_t *netif = nullptr;
+  esp_netif_ip_info_t ip_info;
+  for (int i = 0; i < num_ifs; i++) {
+    netif = esp_netif_next(netif);
+    if (esp_netif_is_netif_up(netif)) {
+      ESP_ERROR_CHECK(esp_netif_get_ip_info(netif, &ip_info));
+      std::stringstream oss;
+      for (int j = 0; j < 4; j++) {
+        if (j > 0) {
+          oss << ".";
+        }
+        const int curr_byte = (ip_info.ip.addr >> (8 * j)) & 0xFF;
+        oss << curr_byte;
+      }
+      return oss.str();
+    }
+  }
+  return "Unknown IP";
+}
+
 extern "C" void app_main(void) {
 
   static httpd_handle_t server = NULL;
@@ -254,10 +280,11 @@ extern "C" void app_main(void) {
   }
 
   server = start_webserver();
+  const std::string ip_address = get_ip_address();
 
   while (1) {
     blink_led();
-    write_stripes();
+    write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;
     vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
