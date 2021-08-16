@@ -6,8 +6,11 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+#include <algorithm>
 #include <array>
+#include <memory>
 #include <sstream>
+#include <string>
 #include <stdio.h>
 
 #include "driver/gpio.h"
@@ -34,6 +37,7 @@ static char HELLO_HTML[] =
     "</html>";
 
 static const char *TAG = "example";
+constexpr char ESP_LINE_COOKIE[] = "esp32-line";
 constexpr gpio_num_t BLINK_GPIO = GPIO_NUM_13;
 constexpr gpio_num_t DISPLAY_SDA = GPIO_NUM_23;
 constexpr gpio_num_t DISPLAY_SCL = GPIO_NUM_22;
@@ -47,6 +51,7 @@ static bool s_led_state = 0;
 
 std::string display_message = "my cool display message!";
 static std::array<std::string, 8> display_data;
+static std::array<bool, 8> is_allocated = {true, false, false, false, false, false, false, false};
 
 static void blink_led(void) {
   /* Set the GPIO level according to the state (LOW or HIGH)*/
@@ -119,17 +124,8 @@ esp_err_t write_stripes(const std::string &ip_address) {
 
   uint8_t buf[129] = {0};
   buf[0] = 0x40;
-  std::stringstream sstream;
   for (int i = 0; i < 8; i++) {
-    sstream.str("");
-    if (s_led_state == i % 2) {
-      sstream << display_message;
-    }
-    if (i == 0) {
-      sstream.str("");
-      sstream << "IP: " << ip_address;
-    }
-    const std::array<uint8_t, 128> data = data_from_string(sstream.str());
+    const std::array<uint8_t, 128> data = data_from_string(display_data.at(i));
     for (int j = 0; j < data.size(); j++) {
       buf[j + 1] = data[j];
     }
@@ -174,10 +170,49 @@ static void configure_i2c() {
   ESP_LOGI(TAG, "Done configuring I2C!");
 }
 
+std::vector<std::string> split(const std::string &in, const char delim) {
+  std::stringstream iss(in);
+  std::vector<std::string> out;
+  for (std::string item; std::getline(iss, item, delim);) {
+    out.push_back(item);
+  }
+  return out;
+}
+
+int extract_line_number_from_cookie_str(const std::string &cookie_str) {
+  const auto cookie_entries = split(cookie_str, ';');
+  for (const auto &entry : cookie_entries) {
+    const auto split_entry = split(entry, '=');
+    if (split_entry.size() == 2 && split_entry[0] == ESP_LINE_COOKIE) {
+      return std::stoi(split_entry[1]);
+    }
+  }
+  return -1;
+}
+
 static esp_err_t root_handler(httpd_req_t *req) {
 
   ESP_LOGI(TAG, "Received root request. method: %d length: %d", req->method, req->content_len);
-  if (req->method == HTTP_POST && req->content_len > 0) {
+
+  const int cookie_len = httpd_req_get_hdr_value_len(req, "Cookie");
+  bool has_esp_line_cookie = false;
+  int line_number = -1;
+  if (cookie_len) {
+    const int alloc_size = cookie_len + 1;
+    std::unique_ptr<char[]> hdr_data(new char[alloc_size]);
+    hdr_data[alloc_size-1] = 0;
+    httpd_req_get_hdr_value_str(req, "Cookie", hdr_data.get(), alloc_size);
+
+    line_number = extract_line_number_from_cookie_str(hdr_data.get());
+    ESP_LOGI(TAG, "Cookie Field: %s", hdr_data.get());
+    ESP_LOGI(TAG, "Extracted line number: %d", line_number);
+    if (line_number > 0) {
+      has_esp_line_cookie = true;
+      is_allocated.at(line_number) = true;
+    }
+  }
+
+  if (req->method == HTTP_POST && req->content_len > 0 && line_number > 0) {
     char *content = (char *)calloc(req->content_len+1, sizeof(char));
     httpd_req_recv(req, content, req->content_len);
     ESP_LOGI(TAG, "Received POST request: \r\n%s", content);
@@ -185,9 +220,18 @@ static esp_err_t root_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(httpd_query_key_value(content, "message", message_str,
                                           sizeof(message_str)));
     if (strlen(message_str)) {
-      display_message = message_str;
+      display_data.at(line_number) = message_str;
     }
     free(content);
+  } else if (req->method == HTTP_GET && !has_esp_line_cookie) {
+    // Find the first non allocated index
+    const auto iter = std::find(is_allocated.begin(), is_allocated.end(), false);
+    if (iter != is_allocated.end()) {
+      std::stringstream oss;
+      oss << ESP_LINE_COOKIE << "=" << std::distance(is_allocated.begin(), iter);
+      httpd_resp_set_hdr(req, "Set-Cookie", oss.str().c_str());
+      *iter = true;
+    }
   }
   httpd_resp_set_status(req, HTTPD_200);
   httpd_resp_sendstr(req, HELLO_HTML);
@@ -281,6 +325,11 @@ extern "C" void app_main(void) {
 
   server = start_webserver();
   const std::string ip_address = get_ip_address();
+  {
+    std::stringstream oss;
+    oss << "IP: " << get_ip_address();
+    display_data.at(0) = oss.str();
+  }
 
   while (1) {
     blink_led();
