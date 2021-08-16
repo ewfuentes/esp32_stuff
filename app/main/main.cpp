@@ -43,6 +43,7 @@ constexpr gpio_num_t DISPLAY_SDA = GPIO_NUM_23;
 constexpr gpio_num_t DISPLAY_SCL = GPIO_NUM_22;
 constexpr i2c_port_t DISPLAY_I2C = 0;
 constexpr uint8_t DISPLAY_ADDR = 0x3D;
+constexpr uint8_t PRESSURE_ADDR = 0x77;
 
 constexpr uint8_t DATA_BYTES = 0x00;
 constexpr uint8_t COMMAND_BYTES = 0x00;
@@ -116,6 +117,19 @@ std::array<std::uint8_t, 128> data_from_string(const std::string &str) {
     idx += 1;
   }
   return out;
+}
+
+int read_pressure_chip_id() {
+  constexpr uint8_t CHIP_ID_REGISTER = 0xD0;
+  {
+    const uint8_t buf[] = {CHIP_ID_REGISTER};
+    ESP_ERROR_CHECK(i2c_master_write_to_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
+                                             CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
+  }
+  uint8_t buf[1];
+  ESP_ERROR_CHECK(i2c_master_read_from_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
+                                            CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
+  return buf[0];
 }
 
 esp_err_t write_stripes(const std::string &ip_address) {
@@ -333,6 +347,12 @@ extern "C" void app_main(void) {
 
   while (1) {
     blink_led();
+    {
+      std::stringstream oss;
+      const int chip_id = read_pressure_chip_id();
+      oss << "Chip Id: 0x" << std::hex << chip_id;
+      display_data.at(1) = oss.str();
+    }
     write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;
