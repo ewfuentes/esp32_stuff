@@ -22,6 +22,8 @@
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
 
+#include "bmp280.hh"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -304,12 +306,28 @@ std::string get_ip_address() {
   return "Unknown IP";
 }
 
+app::BMP280 init_bmp280() {
+  const app::BMP280Config cfg = {
+    .comm_config = {
+      .i2c_num = DISPLAY_I2C,
+      .address = 0x77,
+    },
+    .temp_oversample_config = app::BMP280Config::OversampleConfig::x2,
+    .pressure_oversample_config = app::BMP280Config::OversampleConfig::x16,
+    .power_mode = app::BMP280Config::PowerMode::normal,
+    .standby_time = app::BMP280Config::StandbyTime::ms_0_5,
+    .filter_constant = app::BMP280Config::FilterTimeConstant::x16,
+  };
+  return app::BMP280(cfg);
+}
+
 extern "C" void app_main(void) {
 
   static httpd_handle_t server = NULL;
   /* Configure the peripheral according to the LED type */
   configure_led();
   configure_i2c();
+  auto bmp280 = init_bmp280();
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -349,9 +367,17 @@ extern "C" void app_main(void) {
     blink_led();
     {
       std::stringstream oss;
-      const int chip_id = read_pressure_chip_id();
-      oss << "Chip Id: 0x" << std::hex << chip_id;
+      oss << "Chip Id: 0x" << std::hex << bmp280.chip_id();
       display_data.at(1) = oss.str();
+    }
+    {
+      const auto temp_and_pressure = bmp280.read_sensor();
+      std::stringstream oss;
+      oss << "Temp: " << temp_and_pressure.temperature_degC;
+      display_data.at(2) = oss.str();
+      oss.str("");
+      oss << "Pressure: " << temp_and_pressure.pressure_kPa;
+      display_data.at(3) = oss.str();
     }
     write_stripes(ip_address);
     /* Toggle the LED state */
