@@ -19,6 +19,7 @@
 extern "C" {
 #endif
 
+#include "stdint.h"
 #include "sdkconfig.h"
 
 #define ROMFN_ATTR

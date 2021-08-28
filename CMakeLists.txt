@@ -120,6 +120,8 @@ list(APPEND link_options "-fno-lto")
 list(APPEND compile_options "-fno-jump-tables")
 list(APPEND compile_options "-fno-tree-switch-conversion")
 
+list(APPEND cxx_compile_options "-std=c++2a")
+
 idf_build_set_property(COMPILE_OPTIONS "${compile_options}" APPEND)
 idf_build_set_property(C_COMPILE_OPTIONS "${c_compile_options}" APPEND)
 idf_build_set_property(CXX_COMPILE_OPTIONS "${cxx_compile_options}" APPEND)

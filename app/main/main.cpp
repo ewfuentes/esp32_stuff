@@ -15,6 +15,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "driver/spi_master.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -23,6 +24,7 @@
 #include "protocol_examples_common.h"
 
 #include "bmp280.hh"
+#include "icm20948.hh"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -43,6 +45,7 @@ constexpr char ESP_LINE_COOKIE[] = "esp32-line";
 constexpr gpio_num_t BLINK_GPIO = GPIO_NUM_13;
 constexpr gpio_num_t DISPLAY_SDA = GPIO_NUM_23;
 constexpr gpio_num_t DISPLAY_SCL = GPIO_NUM_22;
+constexpr gpio_num_t IMU_CS = GPIO_NUM_27;
 constexpr i2c_port_t DISPLAY_I2C = 0;
 constexpr uint8_t DISPLAY_ADDR = 0x3D;
 constexpr uint8_t PRESSURE_ADDR = 0x77;
@@ -50,11 +53,13 @@ constexpr uint8_t PRESSURE_ADDR = 0x77;
 constexpr uint8_t DATA_BYTES = 0x00;
 constexpr uint8_t COMMAND_BYTES = 0x00;
 
+constexpr spi_host_device_t IMU_SPI = SPI2_HOST;
+
 static bool s_led_state = 0;
 
 std::string display_message = "my cool display message!";
 static std::array<std::string, 8> display_data;
-static std::array<bool, 8> is_allocated = {true, false, false, false, false, false, false, false};
+static std::array<bool, 8> is_allocated = {true, true, true, true, true, false, false, false};
 
 static void blink_led(void) {
   /* Set the GPIO level according to the state (LOW or HIGH)*/
@@ -184,6 +189,20 @@ static void configure_i2c() {
     }
   }
   ESP_LOGI(TAG, "Done configuring I2C!");
+}
+
+static void configure_spi() {
+  const spi_bus_config_t config = {
+                                   .mosi_io_num = 18,
+                                   .miso_io_num = 19,
+                                   .sclk_io_num = 5,
+                                   .quadwp_io_num = -1,
+                                   .quadhd_io_num = -1,
+                                   .max_transfer_sz = 0,
+                                   .flags = SPICOMMON_BUSFLAG_MASTER,
+                                   .intr_flags = 0x00
+  };
+  ESP_ERROR_CHECK(spi_bus_initialize(IMU_SPI, &config, SPI_DMA_DISABLED));
 }
 
 std::vector<std::string> split(const std::string &in, const char delim) {
@@ -321,13 +340,26 @@ app::BMP280 init_bmp280() {
   return app::BMP280(cfg);
 }
 
+app::ICM20948 init_icm20948() {
+  const app::ICM20948Config config = {
+    .comm_config = {
+      .channel = IMU_SPI,
+      .clock_speed_hz = 6000000,
+      .chip_select = IMU_CS,
+    }
+  };
+  return app::ICM20948(config);
+}
+
 extern "C" void app_main(void) {
 
   static httpd_handle_t server = NULL;
   /* Configure the peripheral according to the LED type */
   configure_led();
   configure_i2c();
+  configure_spi();
   auto bmp280 = init_bmp280();
+  auto icm20948 = init_icm20948();
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -378,6 +410,11 @@ extern "C" void app_main(void) {
       oss.str("");
       oss << "Pressure: " << temp_and_pressure.pressure_kPa;
       display_data.at(3) = oss.str();
+    }
+    {
+      std::stringstream oss;
+      oss << "ICM20948 Chip ID: 0x" << std::hex << icm20948.who_am_i();
+      display_data.at(4) = oss.str();
     }
     write_stripes(ip_address);
     /* Toggle the LED state */
