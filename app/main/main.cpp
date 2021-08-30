@@ -46,6 +46,7 @@ constexpr gpio_num_t BLINK_GPIO = GPIO_NUM_13;
 constexpr gpio_num_t DISPLAY_SDA = GPIO_NUM_23;
 constexpr gpio_num_t DISPLAY_SCL = GPIO_NUM_22;
 constexpr gpio_num_t IMU_CS = GPIO_NUM_27;
+constexpr gpio_num_t IMU_INT_PIN = GPIO_NUM_16;
 constexpr i2c_port_t DISPLAY_I2C = 0;
 constexpr uint8_t DISPLAY_ADDR = 0x3D;
 constexpr uint8_t PRESSURE_ADDR = 0x77;
@@ -67,6 +68,7 @@ static void blink_led(void) {
 }
 
 static void configure_led(void) {
+  gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
   ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
   gpio_reset_pin(BLINK_GPIO);
   /* Set the GPIO as a push/pull output */
@@ -142,6 +144,8 @@ int read_pressure_chip_id() {
 esp_err_t write_stripes(const std::string &ip_address) {
   constexpr uint8_t PAGE_ADDRESS_COMMAND = 0xB0;
   uint8_t page_address_buf[] = {COMMAND_BYTES, PAGE_ADDRESS_COMMAND};
+  constexpr uint8_t start_lower_column_buf[] = {COMMAND_BYTES, 0x00};
+  constexpr uint8_t start_upper_column_buf[] = {COMMAND_BYTES, 0x10};
 
   uint8_t buf[129] = {0};
   buf[0] = 0x40;
@@ -150,6 +154,10 @@ esp_err_t write_stripes(const std::string &ip_address) {
     for (int j = 0; j < data.size(); j++) {
       buf[j + 1] = data[j];
     }
+
+    // Set the start column
+    i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, start_lower_column_buf, sizeof(start_lower_column_buf), 100 / portTICK_PERIOD_MS);
+    i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, start_upper_column_buf, sizeof(start_upper_column_buf), 100 / portTICK_PERIOD_MS);
 
     // Set page address
     page_address_buf[1] = (page_address_buf[1] & 0xF0) | i;
@@ -202,7 +210,7 @@ static void configure_spi() {
                                    .flags = SPICOMMON_BUSFLAG_MASTER,
                                    .intr_flags = 0x00
   };
-  ESP_ERROR_CHECK(spi_bus_initialize(IMU_SPI, &config, SPI_DMA_DISABLED));
+  ESP_ERROR_CHECK(spi_bus_initialize(IMU_SPI, &config, SPI_DMA_CH_AUTO));
 }
 
 std::vector<std::string> split(const std::string &in, const char delim) {
@@ -344,9 +352,13 @@ app::ICM20948 init_icm20948() {
   const app::ICM20948Config config = {
     .comm_config = {
       .channel = IMU_SPI,
-      .clock_speed_hz = 6000000,
+      .clock_speed_hz = 2000000,
       .chip_select = IMU_CS,
-    }
+      .interrupt_pin = IMU_INT_PIN,
+    },
+    .sample_rate_hz = 200.0,
+    .gyro_scale = app::ICM20948Config::GyroScale::k500_dps,
+    .accel_scale = app::ICM20948Config::AccelScale::k4g,
   };
   return app::ICM20948(config);
 }
@@ -419,6 +431,14 @@ extern "C" void app_main(void) {
     write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;
+
+    {
+      const auto sample = icm20948.read_data();
+      ESP_LOGI(TAG, "ACCEL: %0.3f %0.3f %0.3f GYRO: %0.3f %0.3f %0.3f TEMP: %0.3f",
+               sample.accel_x_mpss, sample.accel_y_mpss, sample.accel_z_mpss, sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, sample.temp_degC
+               );
+    }
+
     vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
   }
 }
