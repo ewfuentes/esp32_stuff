@@ -348,7 +348,7 @@ app::BMP280 init_bmp280() {
   return app::BMP280(cfg);
 }
 
-app::ICM20948 init_icm20948() {
+app::ICM20948 init_icm20948(const std::function<void(void)> &isr_callback) {
   const app::ICM20948Config config = {
     .comm_config = {
       .channel = IMU_SPI,
@@ -360,7 +360,23 @@ app::ICM20948 init_icm20948() {
     .gyro_scale = app::ICM20948Config::GyroScale::k500_dps,
     .accel_scale = app::ICM20948Config::AccelScale::k4g,
   };
-  return app::ICM20948(config);
+  return app::ICM20948(config, isr_callback);
+}
+
+extern "C" void imu_thread(void *) {
+
+  const auto semaphore = xSemaphoreCreateBinary();
+  const auto isr_callback = [semaphore]() { xSemaphoreGiveFromISR(semaphore, nullptr); };
+  auto icm20948 = init_icm20948(isr_callback);
+
+  while(1) {
+    if (xSemaphoreTake(semaphore, 10) == pdPASS) {
+      const auto sample = icm20948.read_data();
+      //      ESP_LOGI(TAG, "ACCEL: %0.3f %0.3f %0.3f GYRO: %0.3f %0.3f %0.3f TEMP: %0.3f",
+      //               sample.accel_x_mpss, sample.accel_y_mpss, sample.accel_z_mpss, sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, sample.temp_degC
+      //               );
+    }
+  }
 }
 
 extern "C" void app_main(void) {
@@ -371,7 +387,8 @@ extern "C" void app_main(void) {
   configure_i2c();
   configure_spi();
   auto bmp280 = init_bmp280();
-  auto icm20948 = init_icm20948();
+
+  xTaskCreate(imu_thread, "IMU Thread", 4096, nullptr, 0, nullptr);
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -423,21 +440,10 @@ extern "C" void app_main(void) {
       oss << "Pressure: " << temp_and_pressure.pressure_kPa;
       display_data.at(3) = oss.str();
     }
-    {
-      std::stringstream oss;
-      oss << "ICM20948 Chip ID: 0x" << std::hex << icm20948.who_am_i();
-      display_data.at(4) = oss.str();
-    }
     write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;
 
-    {
-      const auto sample = icm20948.read_data();
-      ESP_LOGI(TAG, "ACCEL: %0.3f %0.3f %0.3f GYRO: %0.3f %0.3f %0.3f TEMP: %0.3f",
-               sample.accel_x_mpss, sample.accel_y_mpss, sample.accel_z_mpss, sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, sample.temp_degC
-               );
-    }
 
     vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
   }

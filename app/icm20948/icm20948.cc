@@ -237,8 +237,7 @@ namespace app {
     // Setup the interrupt pin
     // Interrupt pin is active high, configured as push_pull, the interrupt is latched until a
     // read is performed
-    //    ESP_ERROR_CHECK(write_register(UserBank0::INT_PIN_CFG, {0x20}));
-    ESP_ERROR_CHECK(write_register(UserBank0::INT_PIN_CFG, {0x00}));
+    ESP_ERROR_CHECK(write_register(UserBank0::INT_PIN_CFG, {0x20}));
 
     // Interrupt on Raw Data Ready
     ESP_ERROR_CHECK(write_register(UserBank0::INT_ENABLE, {0x00}));
@@ -250,7 +249,7 @@ namespace app {
     return ESP_OK;
   }
 
-  ICM20948::ICM20948(const ICM20948Config &config) : config_(config), device_handle_(nullptr), active_bank_(0) {
+  ICM20948::ICM20948(const ICM20948Config &config, const std::function<void(void)> &isr_callback) : config_(config), device_handle_(nullptr), active_bank_(0) , isr_callback_(isr_callback) {
     const spi_device_interface_config_t dev_config = {
       .command_bits = 1,
       .address_bits = 7,
@@ -286,7 +285,7 @@ namespace app {
     ESP_ERROR_CHECK(configure_interrupt());
   }
 
-  ICM20948::ICM20948(ICM20948 &&other) : config_(other.config_), device_handle_(other.device_handle_) {
+  ICM20948::ICM20948(ICM20948 &&other) : config_(other.config_), device_handle_(other.device_handle_), isr_callback_(other.isr_callback_) {
     other.device_handle_ = nullptr;
   }
 
@@ -294,6 +293,7 @@ namespace app {
     config_ = other.config_;
     device_handle_ = other.device_handle_;
     other.device_handle_ = nullptr;
+    other.isr_callback_ = isr_callback_;
     return *this;
   }
 
@@ -327,13 +327,13 @@ namespace app {
   }
 
   void ICM20948::handle_interrupt() {
+    isr_callback_();
   }
 
   ICM20948Sample ICM20948::read_data() {
     {
       std::array<uint8_t, 2> data;
       ESP_ERROR_CHECK(read_register(UserBank0::INT_STATUS, data));
-      //      ESP_ERROR_CHECK(read_register(UserBank0::INT_STATUS_1, data));
     }
 
     std::array<uint8_t, 14> data;

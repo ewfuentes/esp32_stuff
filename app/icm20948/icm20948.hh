@@ -3,6 +3,7 @@
 
 #include <array>
 #include <vector>
+#include <functional>
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
@@ -38,7 +39,7 @@ namespace app {
 
   class ICM20948 {
   public:
-    ICM20948(const ICM20948Config &config);
+    ICM20948(const ICM20948Config &config, const std::function<void(void)> &isr_callback);
     ~ICM20948();
 
     int who_am_i();
@@ -72,6 +73,7 @@ namespace app {
     ICM20948Config config_;
     spi_device_handle_t device_handle_;
     int active_bank_;
+    std::function<void(void)> isr_callback_;
 
 
   };
