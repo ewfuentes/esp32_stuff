@@ -388,7 +388,7 @@ extern "C" void app_main(void) {
   configure_spi();
   auto bmp280 = init_bmp280();
 
-  xTaskCreate(imu_thread, "IMU Thread", 4096, nullptr, 0, nullptr);
+  xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, nullptr, 20, nullptr, 1);
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
