@@ -31,6 +31,11 @@
 #include "sdkconfig.h"
 #include "subway_ticker/font.hh"
 
+struct TimestampedIMU {
+  int64_t time_us;
+  app::ICM20948Sample sample;
+};
+
 static char HELLO_HTML[] =
     "<html><head><title>Hello ESP32</title></head>"
     "<body>Hello to you too!"
@@ -61,6 +66,7 @@ static bool s_led_state = 0;
 std::string display_message = "my cool display message!";
 static std::array<std::string, 8> display_data;
 static std::array<bool, 8> is_allocated = {true, true, true, true, true, false, false, false};
+
 
 static void blink_led(void) {
   /* Set the GPIO level according to the state (LOW or HIGH)*/
@@ -363,15 +369,26 @@ app::ICM20948 init_icm20948(const std::function<void(void)> &isr_callback) {
   return app::ICM20948(config, isr_callback);
 }
 
-extern "C" void imu_thread(void *) {
+extern "C" void imu_thread(void *arg) {
 
-  const auto semaphore = xSemaphoreCreateBinary();
-  const auto isr_callback = [semaphore]() { xSemaphoreGiveFromISR(semaphore, nullptr); };
+  const auto imu_sample_queue = *static_cast<QueueHandle_t *>(arg);
+  constexpr int QUEUE_SIZE = 16;
+  const auto queue = xQueueCreate(QUEUE_SIZE, sizeof(int64_t));
+  const auto isr_callback = [queue]() {
+    int64_t time = esp_timer_get_time();
+    xQueueSendFromISR(queue, static_cast<void *>(&time), nullptr);
+  };
   auto icm20948 = init_icm20948(isr_callback);
 
+  int64_t timestamp;
   while(1) {
-    if (xSemaphoreTake(semaphore, 10) == pdPASS) {
-      const auto sample = icm20948.read_data();
+    if (xQueueReceive(queue, static_cast<void*>(&timestamp), 10) == pdPASS) {
+      const auto raw_sample = icm20948.read_data();
+      const TimestampedIMU item_to_queue = {
+        .time_us = timestamp,
+        .sample = raw_sample,
+      };
+      xQueueOverwrite(imu_sample_queue, &item_to_queue);
       //      ESP_LOGI(TAG, "ACCEL: %0.3f %0.3f %0.3f GYRO: %0.3f %0.3f %0.3f TEMP: %0.3f",
       //               sample.accel_x_mpss, sample.accel_y_mpss, sample.accel_z_mpss, sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, sample.temp_degC
       //               );
@@ -386,9 +403,12 @@ extern "C" void app_main(void) {
   configure_led();
   configure_i2c();
   configure_spi();
+
   auto bmp280 = init_bmp280();
 
-  xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, nullptr, 20, nullptr, 1);
+  auto imu_sample_queue = xQueueCreate(1, sizeof(TimestampedIMU));
+
+  xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, &imu_sample_queue, 20, nullptr, 1);
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
@@ -439,6 +459,23 @@ extern "C" void app_main(void) {
       oss.str("");
       oss << "Pressure: " << temp_and_pressure.pressure_kPa;
       display_data.at(3) = oss.str();
+    }
+    {
+      TimestampedIMU sample;
+      if (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS) {
+        std::stringstream oss;
+        oss << "t: " << sample.time_us;
+        display_data.at(4) = oss.str();
+        oss.str("");
+        oss << "x: " << sample.sample.accel_x_mpss;
+        display_data.at(5) = oss.str();
+        oss.str("");
+        oss << " y: " << sample.sample.accel_y_mpss;
+        display_data.at(6) = oss.str();
+        oss.str("");
+        oss << " z: " << sample.sample.accel_z_mpss;
+        display_data.at(7) = oss.str();
+      }
     }
     write_stripes(ip_address);
     /* Toggle the LED state */
