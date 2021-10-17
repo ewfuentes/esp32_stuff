@@ -35,8 +35,8 @@ void UdpComm::flush() {
   packet_queue_.clear();
 }
 
-template <>
-void UdpComm::send_data<T>(const T &proto_msg) {
+template <typename T>
+void UdpComm::send_data(const T &proto_msg) {
   const auto data = proto_msg.SerializeToString();
   packet_queue_.clear();
   std::copy(data.begin(), data.end(), std::back_inserter(packet_queue_));

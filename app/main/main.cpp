@@ -26,6 +26,7 @@
 #include "bmp280.hh"
 #include "icm20948.hh"
 #include "udp_comm.hh"
+#include "proto-c/imu_samples.pb-c.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -477,7 +478,7 @@ extern "C" void app_main(void) {
       sample.time_us = 0;
       int messages_waiting = uxQueueMessagesWaiting(imu_sample_queue);
       while (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS) {
-        udp.queue_data((void *) &sample, sizeof(sample));
+        //        udp.queue_data((void *) &sample, sizeof(sample));
       }
       xQueueReset(imu_sample_queue);
       ESP_LOGI(TAG, "Messages in IMU Queue: %d Bytes: %d", messages_waiting,
