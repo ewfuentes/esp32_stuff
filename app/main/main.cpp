@@ -10,8 +10,8 @@
 #include <array>
 #include <memory>
 #include <sstream>
-#include <string>
 #include <stdio.h>
+#include <string>
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -25,6 +25,7 @@
 
 #include "bmp280.hh"
 #include "icm20948.hh"
+#include "udp_comm.hh"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,8 +66,8 @@ static bool s_led_state = 0;
 
 std::string display_message = "my cool display message!";
 static std::array<std::string, 8> display_data;
-static std::array<bool, 8> is_allocated = {true, true, true, true, true, false, false, false};
-
+static std::array<bool, 8> is_allocated = {true, true,  true,  true,
+                                           true, false, false, false};
 
 static void blink_led(void) {
   /* Set the GPIO level according to the state (LOW or HIGH)*/
@@ -138,12 +139,14 @@ int read_pressure_chip_id() {
   constexpr uint8_t CHIP_ID_REGISTER = 0xD0;
   {
     const uint8_t buf[] = {CHIP_ID_REGISTER};
-    ESP_ERROR_CHECK(i2c_master_write_to_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
-                                             CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
+    ESP_ERROR_CHECK(
+        i2c_master_write_to_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
+                                   CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
   }
   uint8_t buf[1];
-  ESP_ERROR_CHECK(i2c_master_read_from_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
-                                            CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
+  ESP_ERROR_CHECK(
+      i2c_master_read_from_device(DISPLAY_I2C, PRESSURE_ADDR, buf, sizeof(buf),
+                                  CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS));
   return buf[0];
 }
 
@@ -162,8 +165,12 @@ esp_err_t write_stripes(const std::string &ip_address) {
     }
 
     // Set the start column
-    i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, start_lower_column_buf, sizeof(start_lower_column_buf), 100 / portTICK_PERIOD_MS);
-    i2c_master_write_to_device(DISPLAY_I2C, DISPLAY_ADDR, start_upper_column_buf, sizeof(start_upper_column_buf), 100 / portTICK_PERIOD_MS);
+    i2c_master_write_to_device(
+        DISPLAY_I2C, DISPLAY_ADDR, start_lower_column_buf,
+        sizeof(start_lower_column_buf), 100 / portTICK_PERIOD_MS);
+    i2c_master_write_to_device(
+        DISPLAY_I2C, DISPLAY_ADDR, start_upper_column_buf,
+        sizeof(start_upper_column_buf), 100 / portTICK_PERIOD_MS);
 
     // Set page address
     page_address_buf[1] = (page_address_buf[1] & 0xF0) | i;
@@ -206,16 +213,14 @@ static void configure_i2c() {
 }
 
 static void configure_spi() {
-  const spi_bus_config_t config = {
-                                   .mosi_io_num = 18,
+  const spi_bus_config_t config = {.mosi_io_num = 18,
                                    .miso_io_num = 19,
                                    .sclk_io_num = 5,
                                    .quadwp_io_num = -1,
                                    .quadhd_io_num = -1,
                                    .max_transfer_sz = 0,
                                    .flags = SPICOMMON_BUSFLAG_MASTER,
-                                   .intr_flags = 0x00
-  };
+                                   .intr_flags = 0x00};
   ESP_ERROR_CHECK(spi_bus_initialize(IMU_SPI, &config, SPI_DMA_CH_AUTO));
 }
 
@@ -241,7 +246,8 @@ int extract_line_number_from_cookie_str(const std::string &cookie_str) {
 
 static esp_err_t root_handler(httpd_req_t *req) {
 
-  ESP_LOGI(TAG, "Received root request. method: %d length: %d", req->method, req->content_len);
+  ESP_LOGI(TAG, "Received root request. method: %d length: %d", req->method,
+           req->content_len);
 
   const int cookie_len = httpd_req_get_hdr_value_len(req, "Cookie");
   bool has_esp_line_cookie = false;
@@ -249,7 +255,7 @@ static esp_err_t root_handler(httpd_req_t *req) {
   if (cookie_len) {
     const int alloc_size = cookie_len + 1;
     std::unique_ptr<char[]> hdr_data(new char[alloc_size]);
-    hdr_data[alloc_size-1] = 0;
+    hdr_data[alloc_size - 1] = 0;
     httpd_req_get_hdr_value_str(req, "Cookie", hdr_data.get(), alloc_size);
 
     line_number = extract_line_number_from_cookie_str(hdr_data.get());
@@ -262,7 +268,7 @@ static esp_err_t root_handler(httpd_req_t *req) {
   }
 
   if (req->method == HTTP_POST && req->content_len > 0 && line_number > 0) {
-    char *content = (char *)calloc(req->content_len+1, sizeof(char));
+    char *content = (char *)calloc(req->content_len + 1, sizeof(char));
     httpd_req_recv(req, content, req->content_len);
     ESP_LOGI(TAG, "Received POST request: \r\n%s", content);
     char message_str[64] = {0};
@@ -274,10 +280,12 @@ static esp_err_t root_handler(httpd_req_t *req) {
     free(content);
   } else if (req->method == HTTP_GET && !has_esp_line_cookie) {
     // Find the first non allocated index
-    const auto iter = std::find(is_allocated.begin(), is_allocated.end(), false);
+    const auto iter =
+        std::find(is_allocated.begin(), is_allocated.end(), false);
     if (iter != is_allocated.end()) {
       std::stringstream oss;
-      oss << ESP_LINE_COOKIE << "=" << std::distance(is_allocated.begin(), iter);
+      oss << ESP_LINE_COOKIE << "="
+          << std::distance(is_allocated.begin(), iter);
       httpd_resp_set_hdr(req, "Set-Cookie", oss.str().c_str());
       *iter = true;
     }
@@ -341,30 +349,32 @@ std::string get_ip_address() {
 
 app::BMP280 init_bmp280() {
   const app::BMP280Config cfg = {
-    .comm_config = {
-      .i2c_num = DISPLAY_I2C,
-      .address = 0x77,
-    },
-    .temp_oversample_config = app::BMP280Config::OversampleConfig::x2,
-    .pressure_oversample_config = app::BMP280Config::OversampleConfig::x16,
-    .power_mode = app::BMP280Config::PowerMode::normal,
-    .standby_time = app::BMP280Config::StandbyTime::ms_0_5,
-    .filter_constant = app::BMP280Config::FilterTimeConstant::x16,
+      .comm_config =
+          {
+              .i2c_num = DISPLAY_I2C,
+              .address = 0x77,
+          },
+      .temp_oversample_config = app::BMP280Config::OversampleConfig::x2,
+      .pressure_oversample_config = app::BMP280Config::OversampleConfig::x16,
+      .power_mode = app::BMP280Config::PowerMode::normal,
+      .standby_time = app::BMP280Config::StandbyTime::ms_0_5,
+      .filter_constant = app::BMP280Config::FilterTimeConstant::x16,
   };
   return app::BMP280(cfg);
 }
 
 app::ICM20948 init_icm20948(const std::function<void(void)> &isr_callback) {
   const app::ICM20948Config config = {
-    .comm_config = {
-      .channel = IMU_SPI,
-      .clock_speed_hz = 2000000,
-      .chip_select = IMU_CS,
-      .interrupt_pin = IMU_INT_PIN,
-    },
-    .sample_rate_hz = 200.0,
-    .gyro_scale = app::ICM20948Config::GyroScale::k500_dps,
-    .accel_scale = app::ICM20948Config::AccelScale::k4g,
+      .comm_config =
+          {
+              .channel = IMU_SPI,
+              .clock_speed_hz = 2000000,
+              .chip_select = IMU_CS,
+              .interrupt_pin = IMU_INT_PIN,
+          },
+      .sample_rate_hz = 200.0,
+      .gyro_scale = app::ICM20948Config::GyroScale::k500_dps,
+      .accel_scale = app::ICM20948Config::AccelScale::k4g,
   };
   return app::ICM20948(config, isr_callback);
 }
@@ -381,17 +391,14 @@ extern "C" void imu_thread(void *arg) {
   auto icm20948 = init_icm20948(isr_callback);
 
   int64_t timestamp;
-  while(1) {
-    if (xQueueReceive(queue, static_cast<void*>(&timestamp), 10) == pdPASS) {
+  while (1) {
+    if (xQueueReceive(queue, static_cast<void *>(&timestamp), 10) == pdPASS) {
       const auto raw_sample = icm20948.read_data();
       const TimestampedIMU item_to_queue = {
-        .time_us = timestamp,
-        .sample = raw_sample,
+          .time_us = timestamp,
+          .sample = raw_sample,
       };
-      xQueueOverwrite(imu_sample_queue, &item_to_queue);
-      //      ESP_LOGI(TAG, "ACCEL: %0.3f %0.3f %0.3f GYRO: %0.3f %0.3f %0.3f TEMP: %0.3f",
-      //               sample.accel_x_mpss, sample.accel_y_mpss, sample.accel_z_mpss, sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, sample.temp_degC
-      //               );
+      xQueueSendToBack(imu_sample_queue, &item_to_queue, 0);
     }
   }
 }
@@ -406,15 +413,20 @@ extern "C" void app_main(void) {
 
   auto bmp280 = init_bmp280();
 
-  auto imu_sample_queue = xQueueCreate(1, sizeof(TimestampedIMU));
+  auto imu_sample_queue = xQueueCreate(1024, sizeof(TimestampedIMU));
 
-  xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, &imu_sample_queue, 20, nullptr, 1);
+  xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, &imu_sample_queue, 20,
+                          nullptr, 1);
 
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
 
   ESP_ERROR_CHECK(example_connect());
+
+  struct app::UdpCommConfig udp_config = {.port = 23456};
+
+  app::UdpComm udp(udp_config);
 
   {
     const esp_err_t status = set_display(false);
@@ -462,7 +474,15 @@ extern "C" void app_main(void) {
     }
     {
       TimestampedIMU sample;
-      if (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS) {
+      sample.time_us = 0;
+      int messages_waiting = uxQueueMessagesWaiting(imu_sample_queue);
+      while (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS) {
+        udp.queue_data((void *) &sample, sizeof(sample));
+      }
+      xQueueReset(imu_sample_queue);
+      ESP_LOGI(TAG, "Messages in IMU Queue: %d Bytes: %d", messages_waiting,
+               messages_waiting * sizeof(TimestampedIMU));
+      if (sample.time_us) {
         std::stringstream oss;
         oss << "t: " << sample.time_us;
         display_data.at(4) = oss.str();
@@ -477,10 +497,10 @@ extern "C" void app_main(void) {
         display_data.at(7) = oss.str();
       }
     }
+    udp.flush();
     write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;
-
 
     vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
   }

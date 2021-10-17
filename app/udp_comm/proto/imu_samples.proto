@@ -1,0 +1,16 @@
+
+syntax = "proto3";
+
+package app.udp_comm;
+
+message ImuSamples {
+ sint64 time_of_validity_us = 1;
+ repeated sint64 timestamps = 2;
+ repeated float accel_x_mpss = 3;
+ repeated float accel_y_mpss = 4;
+ repeated float accel_z_mpss = 5;
+ repeated float gyro_x_dps = 6;
+ repeated float gyro_y_dps = 7;
+ repeated float gyro_z_dps = 8;
+ repeated float temp_deg = 9;
+}
