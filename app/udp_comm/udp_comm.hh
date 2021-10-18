@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "protobuf-c/protobuf-c.h"
+
 namespace app {
 
   struct UdpCommConfig {
@@ -17,9 +19,7 @@ public:
   UdpComm(const UdpComm &other) = delete;
   UdpComm &operator=(const UdpComm &other) = delete;
 
-  template <typename T>
-  void send_data(const T &data);
-  void flush();
+  void send_data(const ProtobufCMessage &msg);
 private:
   int port_;
   int socket_handle_;

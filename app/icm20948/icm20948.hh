@@ -34,7 +34,7 @@ namespace app {
     float gyro_x_dps;
     float gyro_y_dps;
     float gyro_z_dps;
-    float temp_degC;
+    float temp_degc;
   };
 
   class ICM20948 {

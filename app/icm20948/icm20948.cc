@@ -368,7 +368,7 @@ namespace app {
       .gyro_x_dps = rescale(6, gyro_scale),
       .gyro_y_dps = rescale(8, gyro_scale),
       .gyro_z_dps = rescale(10, gyro_scale),
-      .temp_degC = rescale(12, 1.0),
+      .temp_degc = rescale(12, 1.0),
     };
   }
 

@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='app.udp_comm',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x11imu_samples.proto\x12\x0c\x61pp.udp_comm\"\xcd\x01\n\nImuSamples\x12\x1b\n\x13time_of_validity_us\x18\x01 \x01(\x12\x12\x12\n\ntimestamps\x18\x02 \x03(\x12\x12\x14\n\x0c\x61\x63\x63\x65l_x_mpss\x18\x03 \x03(\x02\x12\x14\n\x0c\x61\x63\x63\x65l_y_mpss\x18\x04 \x03(\x02\x12\x14\n\x0c\x61\x63\x63\x65l_z_mpss\x18\x05 \x03(\x02\x12\x12\n\ngyro_x_dps\x18\x06 \x03(\x02\x12\x12\n\ngyro_y_dps\x18\x07 \x03(\x02\x12\x12\n\ngyro_z_dps\x18\x08 \x03(\x02\x12\x10\n\x08temp_deg\x18\t \x03(\x02\x62\x06proto3')
+  serialized_pb=_b('\n\x11imu_samples.proto\x12\x0c\x61pp.udp_comm\"\xce\x01\n\nImuSamples\x12\x1b\n\x13time_of_validity_us\x18\x01 \x01(\x12\x12\x12\n\ntimestamps\x18\x02 \x03(\x12\x12\x14\n\x0c\x61\x63\x63\x65l_x_mpss\x18\x03 \x03(\x02\x12\x14\n\x0c\x61\x63\x63\x65l_y_mpss\x18\x04 \x03(\x02\x12\x14\n\x0c\x61\x63\x63\x65l_z_mpss\x18\x05 \x03(\x02\x12\x12\n\ngyro_x_dps\x18\x06 \x03(\x02\x12\x12\n\ngyro_y_dps\x18\x07 \x03(\x02\x12\x12\n\ngyro_z_dps\x18\x08 \x03(\x02\x12\x11\n\ttemp_degc\x18\t \x03(\x02\x62\x06proto3')
 )
 
 
@@ -89,7 +89,7 @@ _IMUSAMPLES = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='temp_deg', full_name='app.udp_comm.ImuSamples.temp_deg', index=8,
+      name='temp_degc', full_name='app.udp_comm.ImuSamples.temp_degc', index=8,
       number=9, type=2, cpp_type=6, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
@@ -108,7 +108,7 @@ _IMUSAMPLES = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=36,
-  serialized_end=241,
+  serialized_end=242,
 )
 
 DESCRIPTOR.message_types_by_name['ImuSamples'] = _IMUSAMPLES

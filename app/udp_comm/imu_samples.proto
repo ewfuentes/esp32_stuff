@@ -12,5 +12,5 @@ message ImuSamples {
  repeated float gyro_x_dps = 6;
  repeated float gyro_y_dps = 7;
  repeated float gyro_z_dps = 8;
- repeated float temp_deg = 9;
+ repeated float temp_degc = 9;
 }

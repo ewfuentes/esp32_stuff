@@ -151,12 +151,12 @@ static const ProtobufCFieldDescriptor app__udp_comm__imu_samples__field_descript
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
-    "temp_deg",
+    "temp_degc",
     9,
     PROTOBUF_C_LABEL_REPEATED,
     PROTOBUF_C_TYPE_FLOAT,
-    offsetof(App__UdpComm__ImuSamples, n_temp_deg),
-    offsetof(App__UdpComm__ImuSamples, temp_deg),
+    offsetof(App__UdpComm__ImuSamples, n_temp_degc),
+    offsetof(App__UdpComm__ImuSamples, temp_degc),
     NULL,
     NULL,
     0 | PROTOBUF_C_FIELD_FLAG_PACKED,             /* flags */
@@ -170,7 +170,7 @@ static const unsigned app__udp_comm__imu_samples__field_indices_by_name[] = {
   5,   /* field[5] = gyro_x_dps */
   6,   /* field[6] = gyro_y_dps */
   7,   /* field[7] = gyro_z_dps */
-  8,   /* field[8] = temp_deg */
+  8,   /* field[8] = temp_degc */
   0,   /* field[0] = time_of_validity_us */
   1,   /* field[1] = timestamps */
 };

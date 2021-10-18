@@ -41,8 +41,8 @@ struct  _App__UdpComm__ImuSamples
   float *gyro_y_dps;
   size_t n_gyro_z_dps;
   float *gyro_z_dps;
-  size_t n_temp_deg;
-  float *temp_deg;
+  size_t n_temp_degc;
+  float *temp_degc;
 };
 #define APP__UDP_COMM__IMU_SAMPLES__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&app__udp_comm__imu_samples__descriptor) \

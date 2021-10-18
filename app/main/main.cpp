@@ -26,17 +26,13 @@
 #include "bmp280.hh"
 #include "icm20948.hh"
 #include "udp_comm.hh"
-#include "proto-c/imu_samples.pb-c.h"
+#include "imu_samples_to_proto.hh"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "subway_ticker/font.hh"
 
-struct TimestampedIMU {
-  int64_t time_us;
-  app::ICM20948Sample sample;
-};
 
 static char HELLO_HTML[] =
     "<html><head><title>Hello ESP32</title></head>"
@@ -348,21 +344,21 @@ std::string get_ip_address() {
   return "Unknown IP";
 }
 
-app::BMP280 init_bmp280() {
-  const app::BMP280Config cfg = {
-      .comm_config =
-          {
-              .i2c_num = DISPLAY_I2C,
-              .address = 0x77,
-          },
-      .temp_oversample_config = app::BMP280Config::OversampleConfig::x2,
-      .pressure_oversample_config = app::BMP280Config::OversampleConfig::x16,
-      .power_mode = app::BMP280Config::PowerMode::normal,
-      .standby_time = app::BMP280Config::StandbyTime::ms_0_5,
-      .filter_constant = app::BMP280Config::FilterTimeConstant::x16,
-  };
-  return app::BMP280(cfg);
-}
+//app::BMP280 init_bmp280() {
+//  const app::BMP280Config cfg = {
+//      .comm_config =
+//          {
+//              .i2c_num = DISPLAY_I2C,
+//              .address = 0x77,
+//          },
+//      .temp_oversample_config = app::BMP280Config::OversampleConfig::x2,
+//      .pressure_oversample_config = app::BMP280Config::OversampleConfig::x16,
+//      .power_mode = app::BMP280Config::PowerMode::normal,
+//      .standby_time = app::BMP280Config::StandbyTime::ms_0_5,
+//      .filter_constant = app::BMP280Config::FilterTimeConstant::x16,
+//  };
+//  return app::BMP280(cfg);
+//}
 
 app::ICM20948 init_icm20948(const std::function<void(void)> &isr_callback) {
   const app::ICM20948Config config = {
@@ -395,7 +391,7 @@ extern "C" void imu_thread(void *arg) {
   while (1) {
     if (xQueueReceive(queue, static_cast<void *>(&timestamp), 10) == pdPASS) {
       const auto raw_sample = icm20948.read_data();
-      const TimestampedIMU item_to_queue = {
+      const app::TimestampedIMU item_to_queue = {
           .time_us = timestamp,
           .sample = raw_sample,
       };
@@ -412,9 +408,9 @@ extern "C" void app_main(void) {
   configure_i2c();
   configure_spi();
 
-  auto bmp280 = init_bmp280();
+  //auto bmp280 = init_bmp280();
 
-  auto imu_sample_queue = xQueueCreate(1024, sizeof(TimestampedIMU));
+  auto imu_sample_queue = xQueueCreate(1024, sizeof(app::TimestampedIMU));
 
   xTaskCreatePinnedToCore(imu_thread, "IMU Thread", 4096, &imu_sample_queue, 20,
                           nullptr, 1);
@@ -457,32 +453,37 @@ extern "C" void app_main(void) {
     display_data.at(0) = oss.str();
   }
 
+  App__UdpComm__ImuSamples proto_imu_samples = APP__UDP_COMM__IMU_SAMPLES__INIT;
   while (1) {
     blink_led();
     {
-      std::stringstream oss;
-      oss << "Chip Id: 0x" << std::hex << bmp280.chip_id();
-      display_data.at(1) = oss.str();
+      //      std::stringstream oss;
+      //      oss << "Chip Id: 0x" << std::hex << bmp280.chip_id();
+      //      display_data.at(1) = oss.str();
     }
     {
-      const auto temp_and_pressure = bmp280.read_sensor();
-      std::stringstream oss;
-      oss << "Temp: " << temp_and_pressure.temperature_degC;
-      display_data.at(2) = oss.str();
-      oss.str("");
-      oss << "Pressure: " << temp_and_pressure.pressure_kPa;
-      display_data.at(3) = oss.str();
+      //      const auto temp_and_pressure = bmp280.read_sensor();
+      //      std::stringstream oss;
+      //      oss << "Temp: " << temp_and_pressure.temperature_degC;
+      //      display_data.at(2) = oss.str();
+      //      oss.str("");
+      //      oss << "Pressure: " << temp_and_pressure.pressure_kPa;
+      //      display_data.at(3) = oss.str();
     }
     {
-      TimestampedIMU sample;
+      app::TimestampedIMU sample;
       sample.time_us = 0;
+      app::proto::clear(&proto_imu_samples);
       int messages_waiting = uxQueueMessagesWaiting(imu_sample_queue);
-      while (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS) {
-        //        udp.queue_data((void *) &sample, sizeof(sample));
+      while (xQueueReceive(imu_sample_queue, &sample, 0) == pdPASS && !app::proto::is_full(proto_imu_samples)) {
+        app::proto::add_into(sample, &proto_imu_samples);
       }
-      xQueueReset(imu_sample_queue);
-      ESP_LOGI(TAG, "Messages in IMU Queue: %d Bytes: %d", messages_waiting,
-               messages_waiting * sizeof(TimestampedIMU));
+      if (app::proto::is_full(proto_imu_samples)) {
+        xQueueReset(imu_sample_queue);
+      }
+      udp.send_data(*((ProtobufCMessage*)&proto_imu_samples));
+      //      ESP_LOGI(TAG, "Messages in IMU Queue: %d Bytes: %d", messages_waiting,
+      //               messages_waiting * sizeof(app::TimestampedIMU));
       if (sample.time_us) {
         std::stringstream oss;
         oss << "t: " << sample.time_us;
@@ -498,7 +499,6 @@ extern "C" void app_main(void) {
         display_data.at(7) = oss.str();
       }
     }
-    udp.flush();
     write_stripes(ip_address);
     /* Toggle the LED state */
     s_led_state = !s_led_state;

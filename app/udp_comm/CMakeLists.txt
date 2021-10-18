@@ -21,5 +21,6 @@ endif()
 idf_component_register(SRCS
   ${pb_csrcs}
   "udp_comm.cc"
+  "imu_samples_to_proto.cc"
   INCLUDE_DIRS "."
-  PRIV_REQUIRES protobuf-c)
+  PRIV_REQUIRES protobuf-c icm20948)
